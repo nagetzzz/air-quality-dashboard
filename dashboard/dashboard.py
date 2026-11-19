@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 # ------------------------------------------------------------------ Konstanta
-COLOR_BASE = "#B8C0CC"
+COLOR_BASE = "#8592A0"  # abu-abu pembanding, kontras 3,2:1 terhadap putih
 COLOR_HIGH = "#C0392B"
 COLOR_LOW = "#2E86AB"
 COLOR_TEXT = "#2C3E50"
@@ -15,7 +15,9 @@ STANDARD_PM25 = 35  # standar tahunan PM2.5 China, GB 3095-2012 Grade II (µg/m�
 MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
 AQI_BINS = [0, 35, 75, 115, 150, 250, np.inf]
 AQI_LABELS = ["Baik", "Sedang", "Tercemar Ringan", "Tercemar Sedang", "Tercemar Berat", "Sangat Berbahaya"]
-AQI_COLORS = ["#2E8B57", "#F1C40F", "#E67E22", "#E74C3C", "#8E44AD", "#6E2C00"]
+# Skala ordinal: hijau = baik, lalu makin gelap seiring makin parah (lolos uji buta warna antar kategori bersebelahan)
+AQI_COLORS = ["#2E8B57", "#EDC03C", "#D86A1E", "#B02A2A", "#6E2380", "#5A1010"]
+PM_SCALE = [[0, "#EDC03C"], [0.35, "#D86A1E"], [0.7, "#B02A2A"], [1, "#5A1010"]]
 POLLUTANTS = {
     "PM2.5": "Partikel halus ≤ 2,5 µm",
     "PM10": "Partikel ≤ 10 µm",
@@ -43,9 +45,9 @@ st.markdown(
     .hero p {color: #DCE3EA; margin: .35rem 0 0 0; font-size: 1rem;}
     .kpi {background: white; border: 1px solid #E6E9EE; border-left: 6px solid var(--accent);
           border-radius: 12px; padding: 1rem 1.2rem; height: 100%; box-shadow: 0 1px 3px rgba(0,0,0,.05);}
-    .kpi .label {color: #6B7785; font-size: .85rem; margin-bottom: .25rem;}
+    .kpi .label {color: #566270; font-size: .85rem; margin-bottom: .25rem;}
     .kpi .value {color: #2C3E50; font-size: 1.75rem; font-weight: 700; line-height: 1.2;}
-    .kpi .note {color: #8A95A3; font-size: .8rem; margin-top: .2rem;}
+    .kpi .note {color: #5F6B7A; font-size: .8rem; margin-top: .2rem;}
     .insight {background: #F4F7FA; border-left: 4px solid #2E86AB; border-radius: 8px;
               padding: .8rem 1rem; margin-top: .4rem; color: #2C3E50;}
     </style>
@@ -329,11 +331,12 @@ with tab4:
     left, right = st.columns([1, 1.4])
     with left:
         fig = go.Figure(go.Pie(labels=pct_all.index, values=pct_all.values, hole=0.55, sort=False,
-                               marker=dict(colors=AQI_COLORS), textinfo="percent",
+                               marker=dict(colors=AQI_COLORS, line=dict(color="white", width=2)), texttemplate="%{percent:.1%}", textposition="inside",
                                hovertemplate="%{label}: %{value:.1f}% hari<extra></extra>"))
         fig.update_layout(title="Proporsi Hari per Kategori",
                           annotations=[dict(text=f"<b>{pct_all['Baik']:.0f}%</b><br>hari Baik",
-                                            showarrow=False, font_size=16)])
+                                            showarrow=False, font_size=16)],
+                          uniformtext=dict(minsize=10, mode="hide"))
         fig = style(fig)
         fig.update_layout(legend=dict(orientation="v", y=0.5, yanchor="middle", x=1.02, xanchor="left"))
         st.plotly_chart(fig, width="stretch")
@@ -346,7 +349,7 @@ with tab4:
                      category_orders={"kategori": AQI_LABELS, "station": order[::-1]},
                      color_discrete_sequence=AQI_COLORS,
                      labels={"persen": "Persentase hari (%)", "station": "", "kategori": ""})
-        fig.update_traces(hovertemplate="%{y}: %{x:.1f}%<extra></extra>")
+        fig.update_traces(hovertemplate="%{y}: %{x:.1f}%<extra></extra>", marker_line=dict(color="white", width=1.5))
         fig.update_layout(title="Komposisi Kategori per Stasiun (urut dari paling tercemar)", barmode="stack",
                           xaxis_range=[0, 100])
         fig = style(fig, height=max(420, 30 * len(order) + 120))
@@ -357,7 +360,7 @@ with tab4:
     geo["lat"] = geo["station"].map(lambda s: STATION_COORDS[s][0])
     geo["lon"] = geo["station"].map(lambda s: STATION_COORDS[s][1])
     fig = px.scatter_map(geo, lat="lat", lon="lon", size="pm25", color="pm25", hover_name="station",
-                         color_continuous_scale="YlOrRd", size_max=22, zoom=8.8,
+                         color_continuous_scale=PM_SCALE, size_max=22, zoom=8.8,
                          center=dict(lat=40.08, lon=116.40), map_style="carto-positron",
                          labels={"pm25": "PM2.5 (µg/m³)"},
                          hover_data={"lat": False, "lon": False, "pm25": ":.1f"})
