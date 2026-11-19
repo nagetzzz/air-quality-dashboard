@@ -101,14 +101,57 @@ def insight(text):
 
 all_df = load_data()
 all_stations = sorted(all_df["station"].unique())
+min_date, max_date = all_df["date"].min().date(), all_df["date"].max().date()
+URBAN = ["Aotizhongxin", "Dongsi", "Guanyuan", "Gucheng", "Nongzhanguan", "Tiantan", "Wanliu", "Wanshouxigong"]
+SUBURBAN = ["Changping", "Dingling", "Huairou", "Shunyi"]
+PERIODS = {
+    "Semua": (min_date, max_date),
+    "2013/14": (pd.Timestamp("2013-03-01").date(), pd.Timestamp("2014-02-28").date()),
+    "2014/15": (pd.Timestamp("2014-03-01").date(), pd.Timestamp("2015-02-28").date()),
+    "2015/16": (pd.Timestamp("2015-03-01").date(), pd.Timestamp("2016-02-29").date()),
+    "2016/17": (pd.Timestamp("2016-03-01").date(), pd.Timestamp("2017-02-28").date()),
+}
+
+# Nilai awal filter (disimpan di session_state agar bisa diubah lewat tombol)
+st.session_state.setdefault("date_range", (min_date, max_date))
+st.session_state.setdefault("stations", all_stations)
+st.session_state.setdefault("period_choice", "Semua")
+
+
+def apply_period():
+    choice = st.session_state.get("period_choice")
+    if choice:
+        st.session_state["date_range"] = PERIODS[choice]
+
+
+STATION_PRESETS = {"Semua": all_stations, "Pusat kota": URBAN, "Pinggiran": SUBURBAN, "Kosongkan": []}
+st.session_state.setdefault("station_preset", "Semua")
+
+
+def apply_station_preset():
+    choice = st.session_state.get("station_preset")
+    if choice:
+        st.session_state["stations"] = list(STATION_PRESETS[choice])
+
 
 # ------------------------------------------------------------------ Sidebar
 with st.sidebar:
     st.header("🌫️ Filter Data")
-    min_date, max_date = all_df["date"].min().date(), all_df["date"].max().date()
-    date_range = st.date_input("Rentang waktu", value=(min_date, max_date), min_value=min_date, max_value=max_date)
-    stations = st.multiselect("Stasiun", all_stations, default=all_stations,
-                              help="Hapus beberapa stasiun untuk membandingkan stasiun tertentu saja")
+
+    st.markdown("**Rentang waktu**")
+    st.segmented_control("Periode cepat (Maret–Februari)", list(PERIODS), key="period_choice",
+                         on_change=apply_period)
+    date_range = st.slider("Geser untuk rentang khusus", min_value=min_date, max_value=max_date,
+                           key="date_range", format="DD MMM YYYY",
+                           on_change=lambda: st.session_state.update(period_choice=None))
+
+    st.markdown("**Stasiun**")
+    st.segmented_control("Pilih cepat", list(STATION_PRESETS), key="station_preset",
+                         on_change=apply_station_preset,
+                         help="Pusat kota = 8 stasiun urban; Pinggiran = Changping, Dingling, Huairou, Shunyi")
+    stations = st.pills("Klik untuk memilih/menghapus stasiun", all_stations, selection_mode="multi",
+                        key="stations", on_change=lambda: st.session_state.update(station_preset=None))
+
     pollutant = st.radio("Polutan", list(POLLUTANTS), horizontal=True)
     st.caption(POLLUTANTS[pollutant])
     st.divider()
@@ -119,8 +162,8 @@ with st.sidebar:
             "Acuan: standar tahunan PM2.5 China **35 µg/m³**; kategori harian mengikuti indeks HJ 633-2012."
         )
 
-if len(date_range) != 2 or not stations:
-    st.warning("Pilih rentang tanggal (awal dan akhir) serta minimal satu stasiun.")
+if not stations:
+    st.warning("Pilih minimal satu stasiun di sidebar (atau klik **Semua**).")
     st.stop()
 
 start_date, end_date = pd.Timestamp(date_range[0]), pd.Timestamp(date_range[1])
@@ -166,10 +209,12 @@ with tab1:
         marker_color=highlight(station_mean.values),
         text=[f"{v:.1f}" for v in station_mean.values], textposition="outside",
         hovertemplate="<b>%{y}</b><br>" + pollutant + ": %{x:.1f} " + unit + "<extra></extra>",
+        showlegend=False,
     ))
     if is_pm25:
-        fig.add_vline(x=STANDARD_PM25, line_dash="dash", line_color="black",
-                      annotation_text="Standar China 35 µg/m³", annotation_position="bottom right")
+        fig.add_vline(x=STANDARD_PM25, line_dash="dash", line_color="black")
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="lines", name="Standar China (35 µg/m³)",
+                                 line=dict(color="black", dash="dash")))
     fig.update_layout(title=f"Rata-rata {pollutant} per Stasiun", xaxis_title=f"{pollutant} ({unit})",
                       yaxis_title=None, xaxis_range=[0, station_mean.max() * 1.12])
     st.plotly_chart(style(fig, height=max(320, 38 * len(station_mean) + 90)), width="stretch")
@@ -177,8 +222,9 @@ with tab1:
     spread = station_mean.iloc[-1] / station_mean.iloc[0] if len(station_mean) > 1 else 1
     insight(f"<b>{station_mean.index[-1]}</b> memiliki rata-rata {pollutant} tertinggi "
             f"({station_mean.iloc[-1]:.1f} {unit}), <b>{station_mean.index[0]}</b> terendah "
-            f"({station_mean.iloc[0]:.1f} {unit}), selisih {(spread - 1) * 100:.0f}%. "
-            "Stasiun pusat kota cenderung lebih tercemar dibanding pinggiran utara.")
+            f"({station_mean.iloc[0]:.1f} {unit}), selisih {(spread - 1) * 100:.0f}%."
+            + (" Stasiun pusat kota cenderung lebih tercemar dibanding pinggiran utara."
+               if set(stations) & set(URBAN) and set(stations) & set(SUBURBAN) else ""))
 
 # ------------------------------------------------------------------ Tab 2: pola waktu
 with tab2:
@@ -319,8 +365,9 @@ with tab4:
     st.plotly_chart(style(fig, height=520), width="stretch")
 
     insight(f"Hanya <b>{pct_all['Baik']:.1f}%</b> hari berkategori Baik, sementara "
-            f"<b>{pct_all[AQI_LABELS[2:]].sum():.1f}%</b> hari tergolong tercemar. Di peta, lingkaran besar "
-            "berwarna merah berkumpul di pusat kota, sedangkan pinggiran utara lebih bersih. "
-            "Koordinat stasiun bersifat perkiraan.")
+            f"<b>{pct_all[AQI_LABELS[2:]].sum():.1f}%</b> hari tergolong tercemar."
+            + (" Di peta, lingkaran besar berwarna merah berkumpul di pusat kota, sedangkan pinggiran utara lebih bersih."
+               if set(stations) & set(URBAN) and set(stations) & set(SUBURBAN) else "")
+            + " Koordinat stasiun bersifat perkiraan.")
 
 st.caption("Proyek Analisis Data · Dicoding · Beijing Multi-Site Air Quality Dataset (Mar 2013 – Feb 2017)")
